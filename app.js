@@ -1,7 +1,8 @@
 /* ============================================================
    SHINE AUTO DETAILING — app.js
    Modules: I18n | Router | Header | ServiceCards | ScrollAnimations |
-            PriceCalc | BookingForm | AdminPanel | CRM
+            PriceCalc | Scheduler | BookingWizard | AdminPanel |
+            AdminCalendar | CRM
 ============================================================ */
 
 'use strict';
@@ -11,6 +12,8 @@ const ADMIN_PASSWORD = 'admin123';
 const STORAGE_KEY    = 'shine_crm_bookings';
 const SESSION_KEY    = 'shine_admin_authed';
 const LANG_KEY       = 'shine_lang';
+const BLOCKED_DATES_KEY = 'shine_blocked_dates';
+const BACKEND_URL = 'https://shine-auto-lab-backend-production.up.railway.app'
 
 const STATUS_ORDER = ['New', 'Contacted', 'Confirmed', 'Completed', 'Cancelled'];
 
@@ -34,6 +37,34 @@ const VEHICLE_MULTIPLIERS = {
   'Minivan / Van':      1.35,
   'Other':              1.0,
 };
+
+/* Vehicle size classification for scheduling */
+const VEHICLE_SIZE = {
+  'Sedan': 'small', 'Coupe': 'small', 'Hatchback': 'small', 'Other': 'small',
+  'Sports Car / Exotic': 'large',
+  'SUV / Crossover': 'large', 'Truck / Pickup': 'large', 'Minivan / Van': 'large',
+};
+
+/* Max bookings per day */
+const MAX_BOOKINGS = {
+  small: { weekday: 3, weekend: 4 },
+  large: { weekday: 2, weekend: 3 },
+};
+
+/* Available time slots */
+const TIME_SLOTS = {
+  small: {
+    weekday: ['8:00 AM', '11:00 AM', '2:00 PM'],
+    weekend: ['8:00 AM', '11:00 AM', '2:00 PM', '5:00 PM'],
+  },
+  large: {
+    weekday: ['8:00 AM', '12:00 PM'],
+    weekend: ['8:00 AM', '12:00 PM', '4:00 PM'],
+  },
+};
+
+/* Services that block the next calendar day */
+const PAINT_SERVICES = new Set(['paint1', 'paint2', 'paint3']);
 
 /* English labels for storing in CRM (always English, language-independent) */
 const SERVICE_EN_LABELS = {
@@ -135,6 +166,13 @@ const TRANSLATIONS = {
     'booking.tag':      'Ready to Book?',
     'booking.title':    'Request a Service',
     'booking.subtitle': 'Fill out the form below and we\'ll reach out within 24 hours to confirm your appointment and provide a final price based on your vehicle.',
+    // Wizard steps
+    'wizard.step1': 'Services',
+    'wizard.step2': 'Date & Time',
+    'wizard.step3': 'Contact',
+    'wizard.step4': 'Confirm',
+    'wizard.next':  'Next',
+    'wizard.back':  'Back',
     // Form labels
     'form.name':              'Full Name',
     'form.namePl':            'Your full name',
@@ -147,12 +185,14 @@ const TRANSLATIONS = {
     'form.addOns':            'Add-Ons',
     'form.addOnsNote':        '(price on request)',
     'form.date':              'Preferred Date',
+    'form.time':              'Preferred Time',
     'form.address':           'Service Address',
     'form.addressPlaceholder':'Street address, city — where should we come?',
     'form.addressHint':       'We\'re fully mobile — just tell us where to find you.',
     'form.notes':             'Additional Notes',
     'form.notesPl':           'Vehicle make, model, year, specific concerns, add-on requests…',
-    'form.submit':            'Submit Request',
+    'form.privacy':           'I agree to the <a href="privacy.html" target="_blank">Privacy Policy</a>',
+    'form.submit':            'Confirm & Submit',
     'form.disclaimer':        'We\'ll confirm pricing and availability within 24 hours.',
     // Vehicle options
     'vehicle.sedan':    'Sedan',
@@ -183,10 +223,23 @@ const TRANSLATIONS = {
     'calc.request':    'Price on Request',
     'calc.sizeNote':   'Size adjustment applied',
     'expand.hide':     'Hide Details',
+    // Scheduling
+    'sched.nextAvail': 'No availability on this date. Suggested:',
+    // Confirm step
+    'confirm.title':    'Review Your Booking',
+    'confirm.vehicle':  'Vehicle',
+    'confirm.services': 'Services',
+    'confirm.date':     'Date',
+    'confirm.time':     'Time',
+    'confirm.name':     'Name',
+    'confirm.phone':    'Phone',
+    'confirm.email':    'Email',
+    'confirm.address':  'Address',
     // Success state
-    'success.title':   'Request Received!',
-    'success.msg':     'Thank you for choosing Shine. We\'ll reach out within 24 hours to confirm your appointment and provide final pricing.',
-    'success.another': 'Submit Another Request',
+    'success.title':    'Request Received!',
+    'success.refLabel': 'Booking Reference:',
+    'success.msg':      'Thank you for choosing Shine. We\'ll reach out within 24 hours to confirm your appointment and provide final pricing.',
+    'success.another':  'Submit Another Request',
     // Validation errors
     'err.name':    'Please enter your full name.',
     'err.phone':   'Please enter a valid phone number.',
@@ -194,7 +247,9 @@ const TRANSLATIONS = {
     'err.vehicle': 'Please select a vehicle type.',
     'err.service': 'Please select at least one service.',
     'err.date':    'Please select a preferred date.',
+    'err.time':    'Please select a time slot.',
     'err.address': 'Please enter the service address (where we should come).',
+    'err.privacy': 'Please accept the privacy policy to continue.',
     // About section
     'about.tag':           'About Shine',
     'about.title':         'Detail-Obsessed.<br>Results-Driven.',
@@ -238,12 +293,30 @@ const TRANSLATIONS = {
     'admin.col.service': 'Service',
     'admin.col.vehicle': 'Vehicle',
     'admin.col.address': 'Service Address',
-    'admin.col.preferred':'Preferred Date',
+    'admin.col.preferred':'Preferred Date & Time',
     'admin.col.status':  'Status',
     'admin.col.actions': 'Actions',
     'admin.action.delete':'Delete',
     'admin.empty':       'No bookings yet. Requests submitted through the website will appear here.',
     'admin.stat.total':  'Total',
+    // Admin calendar
+    'admin.cal.title':        'Schedule Overview',
+    'admin.cal.blockBtn':     'Block Date',
+    'admin.cal.hide':         'Hide Calendar',
+    'admin.cal.show':         'Show Calendar',
+    'admin.cal.blockTitle':   'Block a Date',
+    'admin.cal.blockDateLabel':'Select Date',
+    'admin.cal.blockCancel':  'Cancel',
+    'admin.cal.blockConfirm': 'Block Date',
+    'admin.cal.unblock':      'Unblock This Date',
+    'admin.cal.legendGreen':  '< 50% booked',
+    'admin.cal.legendYellow': '50–80% booked',
+    'admin.cal.legendRed':    '> 80% booked',
+    'admin.cal.legendFull':   'Full',
+    'admin.cal.legendBlocked':'Blocked',
+    'admin.cal.noBookings':   'No bookings on this date.',
+    'admin.cal.blockedDate':  '⛔ This date is blocked.',
+    'admin.cal.blockedDates': 'Blocked Dates',
     // Privacy page
     'privacy.back':      '← Back to Shine',
     'privacy.title':     'Privacy Policy',
@@ -342,6 +415,13 @@ const TRANSLATIONS = {
     'booking.tag':      'Prêt à Réserver ?',
     'booking.title':    'Demander un Service',
     'booking.subtitle': 'Remplissez le formulaire et nous vous contacterons dans les 24 heures pour confirmer votre rendez-vous et le prix final.',
+    // Wizard
+    'wizard.step1': 'Services',
+    'wizard.step2': 'Date et heure',
+    'wizard.step3': 'Contact',
+    'wizard.step4': 'Confirmer',
+    'wizard.next':  'Suivant',
+    'wizard.back':  'Retour',
     // Form labels
     'form.name':              'Nom Complet',
     'form.namePl':            'Votre nom complet',
@@ -354,12 +434,14 @@ const TRANSLATIONS = {
     'form.addOns':            'Options Supplémentaires',
     'form.addOnsNote':        '(sur demande)',
     'form.date':              'Date Préférée',
+    'form.time':              'Heure Préférée',
     'form.address':           'Adresse de Service',
     'form.addressPlaceholder':'Adresse, ville — où devons-nous venir ?',
     'form.addressHint':       'Nous sommes entièrement mobiles — dites-nous simplement où vous trouver.',
     'form.notes':             'Notes Supplémentaires',
     'form.notesPl':           'Marque, modèle, année, préoccupations spécifiques…',
-    'form.submit':            'Envoyer la Demande',
+    'form.privacy':           'J\'accepte la <a href="privacy.html" target="_blank">Politique de Confidentialité</a>',
+    'form.submit':            'Confirmer et Envoyer',
     'form.disclaimer':        'Nous confirmerons le prix et la disponibilité dans les 24 heures.',
     // Vehicle options
     'vehicle.sedan':    'Berline',
@@ -390,10 +472,23 @@ const TRANSLATIONS = {
     'calc.request':    'Sur Demande',
     'calc.sizeNote':   'Ajustement de taille appliqué',
     'expand.hide':     'Masquer les détails',
+    // Scheduling
+    'sched.nextAvail': 'Aucune disponibilité à cette date. Suggestions :',
+    // Confirm step
+    'confirm.title':    'Vérifiez votre réservation',
+    'confirm.vehicle':  'Véhicule',
+    'confirm.services': 'Services',
+    'confirm.date':     'Date',
+    'confirm.time':     'Heure',
+    'confirm.name':     'Nom',
+    'confirm.phone':    'Téléphone',
+    'confirm.email':    'Courriel',
+    'confirm.address':  'Adresse',
     // Success
-    'success.title':   'Demande Reçue !',
-    'success.msg':     'Merci d\'avoir choisi Shine. Nous vous contacterons dans les 24 heures pour confirmer votre rendez-vous et le prix final.',
-    'success.another': 'Soumettre une Autre Demande',
+    'success.title':    'Demande Reçue !',
+    'success.refLabel': 'Référence de réservation :',
+    'success.msg':      'Merci d\'avoir choisi Shine. Nous vous contacterons dans les 24 heures pour confirmer votre rendez-vous et le prix final.',
+    'success.another':  'Soumettre une Autre Demande',
     // Validation errors
     'err.name':    'Veuillez entrer votre nom complet.',
     'err.phone':   'Veuillez entrer un numéro de téléphone valide.',
@@ -401,7 +496,9 @@ const TRANSLATIONS = {
     'err.vehicle': 'Veuillez sélectionner le type de véhicule.',
     'err.service': 'Veuillez sélectionner au moins un service.',
     'err.date':    'Veuillez sélectionner une date préférée.',
+    'err.time':    'Veuillez sélectionner un créneau horaire.',
     'err.address': 'Veuillez entrer l\'adresse de service (où nous devons venir).',
+    'err.privacy': 'Veuillez accepter la politique de confidentialité pour continuer.',
     // About
     'about.tag':           'À Propos de Shine',
     'about.title':         'Obsédés par les Détails.<br>Axés sur les Résultats.',
@@ -445,12 +542,30 @@ const TRANSLATIONS = {
     'admin.col.service': 'Service',
     'admin.col.vehicle': 'Véhicule',
     'admin.col.address': 'Adresse de Service',
-    'admin.col.preferred':'Date Préférée',
+    'admin.col.preferred':'Date et Heure Préférées',
     'admin.col.status':  'Statut',
     'admin.col.actions': 'Actions',
     'admin.action.delete':'Supprimer',
     'admin.empty':       'Aucune réservation pour l\'instant. Les demandes soumises apparaîtront ici.',
     'admin.stat.total':  'Total',
+    // Admin calendar
+    'admin.cal.title':        'Aperçu du Calendrier',
+    'admin.cal.blockBtn':     'Bloquer une date',
+    'admin.cal.hide':         'Masquer',
+    'admin.cal.show':         'Afficher',
+    'admin.cal.blockTitle':   'Bloquer une date',
+    'admin.cal.blockDateLabel':'Sélectionner une date',
+    'admin.cal.blockCancel':  'Annuler',
+    'admin.cal.blockConfirm': 'Bloquer',
+    'admin.cal.unblock':      'Débloquer cette date',
+    'admin.cal.legendGreen':  '< 50 % réservé',
+    'admin.cal.legendYellow': '50–80 % réservé',
+    'admin.cal.legendRed':    '> 80 % réservé',
+    'admin.cal.legendFull':   'Complet',
+    'admin.cal.legendBlocked':'Bloqué',
+    'admin.cal.noBookings':   'Aucune réservation à cette date.',
+    'admin.cal.blockedDate':  '⛔ Cette date est bloquée.',
+    'admin.cal.blockedDates': 'Dates Bloquées',
     // Privacy page
     'privacy.back':      '← Retour à Shine',
     'privacy.title':     'Politique de Confidentialité',
@@ -549,6 +664,13 @@ const TRANSLATIONS = {
     'booking.tag':      'Готові Замовити?',
     'booking.title':    'Замовити Послугу',
     'booking.subtitle': 'Заповніть форму, і ми зв\'яжемося з вами протягом 24 годин для підтвердження запису та уточнення ціни.',
+    // Wizard
+    'wizard.step1': 'Послуги',
+    'wizard.step2': 'Дата і час',
+    'wizard.step3': 'Контакти',
+    'wizard.step4': 'Підтвердити',
+    'wizard.next':  'Далі',
+    'wizard.back':  'Назад',
     // Form
     'form.name':              'Повне Ім\'я',
     'form.namePl':            'Ваше повне ім\'я',
@@ -561,12 +683,14 @@ const TRANSLATIONS = {
     'form.addOns':            'Додаткові Послуги',
     'form.addOnsNote':        '(за запитом)',
     'form.date':              'Бажана Дата',
+    'form.time':              'Бажаний Час',
     'form.address':           'Адреса Обслуговування',
     'form.addressPlaceholder':'Вулиця, місто — де нам вас знайти?',
     'form.addressHint':       'Ми повністю мобільні — просто скажіть нам, де ви знаходитесь.',
     'form.notes':             'Додаткові Примітки',
     'form.notesPl':           'Марка, модель, рік, особливі побажання…',
-    'form.submit':            'Надіслати Запит',
+    'form.privacy':           'Я погоджуюсь з <a href="privacy.html" target="_blank">Політикою Конфіденційності</a>',
+    'form.submit':            'Підтвердити та Надіслати',
     'form.disclaimer':        'Ми підтвердимо ціну та наявність протягом 24 годин.',
     // Vehicle options
     'vehicle.sedan':    'Седан',
@@ -597,10 +721,23 @@ const TRANSLATIONS = {
     'calc.request':    'За запитом',
     'calc.sizeNote':   'Застосовано коефіцієнт розміру',
     'expand.hide':     'Сховати деталі',
+    // Scheduling
+    'sched.nextAvail': 'На цю дату немає вільних місць. Пропонуємо:',
+    // Confirm step
+    'confirm.title':    'Перевірте своє замовлення',
+    'confirm.vehicle':  'Автомобіль',
+    'confirm.services': 'Послуги',
+    'confirm.date':     'Дата',
+    'confirm.time':     'Час',
+    'confirm.name':     'Ім\'я',
+    'confirm.phone':    'Телефон',
+    'confirm.email':    'Пошта',
+    'confirm.address':  'Адреса',
     // Success
-    'success.title':   'Запит Отримано!',
-    'success.msg':     'Дякуємо за вибір Shine. Ми зв\'яжемося з вами протягом 24 годин для підтвердження запису та фінальної ціни.',
-    'success.another': 'Надіслати Ще Один Запит',
+    'success.title':    'Запит Отримано!',
+    'success.refLabel': 'Номер бронювання:',
+    'success.msg':      'Дякуємо за вибір Shine. Ми зв\'яжемося з вами протягом 24 годин для підтвердження запису та фінальної ціни.',
+    'success.another':  'Надіслати Ще Один Запит',
     // Validation
     'err.name':    'Будь ласка, введіть своє повне ім\'я.',
     'err.phone':   'Будь ласка, введіть дійсний номер телефону.',
@@ -608,7 +745,9 @@ const TRANSLATIONS = {
     'err.vehicle': 'Будь ласка, виберіть тип автомобіля.',
     'err.service': 'Будь ласка, виберіть принаймні одну послугу.',
     'err.date':    'Будь ласка, виберіть бажану дату.',
+    'err.time':    'Будь ласка, оберіть часовий слот.',
     'err.address': 'Будь ласка, введіть адресу обслуговування.',
+    'err.privacy': 'Будь ласка, погодьтесь із політикою конфіденційності.',
     // About
     'about.tag':           'Про Shine',
     'about.title':         'Прагнемо Досконалості.<br>Орієнтовані на Результат.',
@@ -652,12 +791,30 @@ const TRANSLATIONS = {
     'admin.col.service': 'Послуга',
     'admin.col.vehicle': 'Автомобіль',
     'admin.col.address': 'Адреса Обслуговування',
-    'admin.col.preferred':'Бажана Дата',
+    'admin.col.preferred':'Бажана Дата і Час',
     'admin.col.status':  'Статус',
     'admin.col.actions': 'Дії',
     'admin.action.delete':'Видалити',
     'admin.empty':       'Замовлень ще немає. Запити, надіслані через сайт, з\'являться тут.',
     'admin.stat.total':  'Всього',
+    // Admin calendar
+    'admin.cal.title':        'Огляд Розкладу',
+    'admin.cal.blockBtn':     'Заблокувати дату',
+    'admin.cal.hide':         'Сховати',
+    'admin.cal.show':         'Показати',
+    'admin.cal.blockTitle':   'Заблокувати дату',
+    'admin.cal.blockDateLabel':'Виберіть дату',
+    'admin.cal.blockCancel':  'Скасувати',
+    'admin.cal.blockConfirm': 'Заблокувати',
+    'admin.cal.unblock':      'Розблокувати цю дату',
+    'admin.cal.legendGreen':  '< 50% заброньовано',
+    'admin.cal.legendYellow': '50–80% заброньовано',
+    'admin.cal.legendRed':    '> 80% заброньовано',
+    'admin.cal.legendFull':   'Повний',
+    'admin.cal.legendBlocked':'Заблоковано',
+    'admin.cal.noBookings':   'На цю дату немає замовлень.',
+    'admin.cal.blockedDate':  '⛔ Ця дата заблокована.',
+    'admin.cal.blockedDates': 'Заблоковані Дати',
     // Privacy page
     'privacy.back':      '← Назад до Shine',
     'privacy.title':     'Політика Конфіденційності',
@@ -679,6 +836,10 @@ const TRANSLATIONS = {
 /* ─── UTILITIES ──────────────────────────────────────────── */
 function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+function genRef() {
+  return String(Math.floor(100000 + Math.random() * 900000));
 }
 
 function formatDate(isoString) {
@@ -771,26 +932,20 @@ const I18n = {
   },
 
   applyLanguage(lang) {
-    // Set html lang attribute
     document.documentElement.lang = lang === 'ua' ? 'uk' : lang;
 
-    // Update textContent for [data-i18n] elements
     document.querySelectorAll('[data-i18n]').forEach(el => {
-      const key = el.dataset.i18n;
-      el.textContent = this.t(key);
+      el.textContent = this.t(el.dataset.i18n);
     });
 
-    // Update innerHTML for [data-i18n-html] elements (allows <br> etc.)
     document.querySelectorAll('[data-i18n-html]').forEach(el => {
       el.innerHTML = this.t(el.dataset.i18nHtml);
     });
 
-    // Update placeholders for [data-i18n-placeholder]
     document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
       el.placeholder = this.t(el.dataset.i18nPlaceholder);
     });
 
-    // Footer year
     const yearEl = document.getElementById('footer-year');
     if (yearEl) yearEl.textContent = new Date().getFullYear();
   },
@@ -844,14 +999,12 @@ const Header = {
     const hamburger = document.getElementById('hamburger');
     const mobileNav = document.getElementById('mobile-nav');
 
-    // Sticky scroll behaviour
     const onScroll = () => {
       header.classList.toggle('scrolled', window.scrollY > 20);
     };
     window.addEventListener('scroll', onScroll, { passive: true });
     onScroll();
 
-    // Hamburger toggle
     hamburger.addEventListener('click', () => {
       const isOpen = mobileNav.classList.toggle('open');
       hamburger.classList.toggle('active', isOpen);
@@ -859,7 +1012,6 @@ const Header = {
       mobileNav.setAttribute('aria-hidden', String(!isOpen));
     });
 
-    // Close mobile nav on link click
     mobileNav.querySelectorAll('.mobile-nav-link').forEach(link => {
       link.addEventListener('click', () => {
         mobileNav.classList.remove('open');
@@ -869,7 +1021,6 @@ const Header = {
       });
     });
 
-    // Footer year (also set here as fallback)
     const yearEl = document.getElementById('footer-year');
     if (yearEl) yearEl.textContent = new Date().getFullYear();
   },
@@ -880,8 +1031,7 @@ const ServiceCards = {
   init() {
     document.querySelectorAll('.service-expand-btn').forEach(btn => {
       const labelEl  = btn.querySelector('.expand-label');
-      const i18nKey  = labelEl.dataset.i18n; // original "expand" key e.g. "service.detail.expand"
-      const hideKey  = i18nKey.replace('.expand', '.hide') || null;
+      const i18nKey  = labelEl.dataset.i18n;
       btn.dataset.expandKey = i18nKey;
 
       btn.addEventListener('click', () => {
@@ -892,18 +1042,11 @@ const ServiceCards = {
         btn.setAttribute('aria-expanded', String(!expanded));
         details.hidden = expanded;
 
-        if (expanded) {
-          // Now collapsed — show "view" label
-          labelEl.textContent = I18n.t(i18nKey);
-        } else {
-          // Now expanded — show "hide" label
-          labelEl.textContent = I18n.t('expand.hide');
-        }
+        labelEl.textContent = expanded ? I18n.t(i18nKey) : I18n.t('expand.hide');
       });
     });
   },
 
-  // Re-apply labels after language change
   updateLabels() {
     document.querySelectorAll('.service-expand-btn').forEach(btn => {
       const labelEl   = btn.querySelector('.expand-label');
@@ -915,7 +1058,7 @@ const ServiceCards = {
   },
 };
 
-/* ─── SCROLL ANIMATIONS (Intersection Observer) ─────────── */
+/* ─── SCROLL ANIMATIONS ──────────────────────────────────── */
 const ScrollAnimations = {
   init() {
     const elements = document.querySelectorAll('.js-animate');
@@ -940,8 +1083,9 @@ const ScrollAnimations = {
 /* ─── PRICE CALCULATOR ───────────────────────────────────── */
 const PriceCalc = {
   update() {
-    const vehicleVal = document.getElementById('f-vehicle')?.value || '';
-    const multiplier = VEHICLE_MULTIPLIERS[vehicleVal] || 1.0;
+    const vehicleRadio = document.querySelector('input[name="vehicleType"]:checked');
+    const vehicleVal   = vehicleRadio ? vehicleRadio.value : '';
+    const multiplier   = VEHICLE_MULTIPLIERS[vehicleVal] || 1.0;
 
     const selectedMain   = Array.from(document.querySelectorAll('.cb-main:checked')).map(cb => cb.value);
     const selectedAddons = document.querySelectorAll('.cb-addon:checked').length > 0;
@@ -975,7 +1119,6 @@ const PriceCalc = {
       return { name: I18n.t('mainservice.' + key), price };
     });
 
-    // Build size note
     let sizeNote = '';
     if (selectedMain.length > 0 && vehicleVal && multiplier !== 1.0) {
       sizeNote = ` <span class="calc-multiplier">(×${multiplier} — ${escapeHtml(vehicleVal)})</span>`;
@@ -996,145 +1139,529 @@ const PriceCalc = {
     }
 
     if (selectedMain.length > 0) {
-      calcTotalRow.hidden        = false;
-      calcTotalVal.textContent   = '$' + total + (multiplier !== 1.0 || selectedAddons ? '+' : '');
+      calcTotalRow.hidden      = false;
+      calcTotalVal.textContent = '$' + total + (multiplier !== 1.0 || selectedAddons ? '+' : '');
     } else {
       calcTotalRow.hidden = true;
     }
   },
 };
 
-/* ─── BOOKING FORM ───────────────────────────────────────── */
-const BookingForm = {
-  form:    null,
-  success: null,
+/* ─── SCHEDULER ──────────────────────────────────────────── */
+const Scheduler = {
+  getBlockedDates() {
+    try {
+      return JSON.parse(localStorage.getItem(BLOCKED_DATES_KEY) || '[]');
+    } catch { return []; }
+  },
 
-  init() {
-    this.form    = document.getElementById('booking-form');
-    this.success = document.getElementById('booking-success');
-    if (!this.form) return;
+  saveBlockedDates(dates) {
+    localStorage.setItem(BLOCKED_DATES_KEY, JSON.stringify(dates));
+  },
 
-    // Set minimum date to today
-    const dateInput = document.getElementById('f-date');
-    if (dateInput) {
-      const today = new Date().toISOString().split('T')[0];
-      dateInput.setAttribute('min', today);
+  blockDate(dateStr) {
+    const set = new Set(this.getBlockedDates());
+    set.add(dateStr);
+    this.saveBlockedDates([...set]);
+  },
+
+  unblockDate(dateStr) {
+    this.saveBlockedDates(this.getBlockedDates().filter(d => d !== dateStr));
+  },
+
+  isBlocked(dateStr) {
+    return this.getBlockedDates().includes(dateStr);
+  },
+
+  isPast(dateStr) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return new Date(dateStr + 'T00:00:00') < today;
+  },
+
+  isWeekend(dateStr) {
+    const dow = new Date(dateStr + 'T12:00:00').getDay();
+    return dow === 0 || dow === 6;
+  },
+
+  offsetDay(dateStr, delta) {
+    const d = new Date(dateStr + 'T12:00:00');
+    d.setDate(d.getDate() + delta);
+    return d.toISOString().split('T')[0];
+  },
+
+  /* Available time slots for a date + vehicle type */
+  getAvailableSlots(dateStr, vehicleType) {
+    if (this.isPast(dateStr))    return [];
+    if (this.isBlocked(dateStr)) return [];
+
+    // If previous day has a paint-correction booking that blocks next day
+    const prevDay = this.offsetDay(dateStr, -1);
+    if (Storage.getBookings().some(b => b.preferredDate === prevDay && b.blockNextDay)) return [];
+
+    const size    = VEHICLE_SIZE[vehicleType] || 'small';
+    const dayType = this.isWeekend(dateStr) ? 'weekend' : 'weekday';
+    const allSlots = TIME_SLOTS[size][dayType];
+
+    const booked = Storage.getBookings()
+      .filter(b => b.preferredDate === dateStr && (VEHICLE_SIZE[b.vehicleType] || 'small') === size)
+      .map(b => b.preferredTime);
+
+    return allSlots.filter(s => !booked.includes(s));
+  },
+
+  isDateAvailable(dateStr, vehicleType) {
+    return this.getAvailableSlots(dateStr, vehicleType).length > 0;
+  },
+
+  /* Capacity level for calendar display */
+  getCapacityLevel(dateStr) {
+    if (this.isPast(dateStr))    return 'past';
+    if (this.isBlocked(dateStr)) return 'blocked';
+
+    const prevDay = this.offsetDay(dateStr, -1);
+    if (Storage.getBookings().some(b => b.preferredDate === prevDay && b.blockNextDay)) return 'blocked';
+
+    const bookings = Storage.getBookings().filter(b => b.preferredDate === dateStr);
+    if (bookings.some(b => b.blockNextDay)) return 'full';
+
+    const dayType = this.isWeekend(dateStr) ? 'weekend' : 'weekday';
+    const capacity = MAX_BOOKINGS.small[dayType] + MAX_BOOKINGS.large[dayType];
+    const ratio = bookings.length / capacity;
+
+    if (ratio === 0)     return 'free';
+    if (ratio >= 1)      return 'full';
+    if (ratio > 0.8)     return 'high';
+    if (ratio >= 0.5)    return 'medium';
+    return 'low';
+  },
+
+  /* Next N available dates from a given date for a vehicle type */
+  getNextAvailable(fromDateStr, vehicleType, count = 3) {
+    const result = [];
+    let d = new Date(fromDateStr + 'T12:00:00');
+    d.setDate(d.getDate() + 1);
+
+    for (let i = 0; i < 90 && result.length < count; i++) {
+      const s = d.toISOString().split('T')[0];
+      if (this.isDateAvailable(s, vehicleType)) result.push(s);
+      d.setDate(d.getDate() + 1);
     }
+    return result;
+  },
+};
 
-    this.form.addEventListener('submit', e => {
-      e.preventDefault();
-      if (this.validate()) this.submit();
-    });
+/* ─── BOOKING WIZARD ─────────────────────────────────────── */
+const BookingWizard = {
+  currentStep: 1,
+  _form:    null,
+  _success: null,
 
-    // Clear errors on input for standard fields
-    this.form.querySelectorAll('.form-input').forEach(input => {
-      input.addEventListener('input',  () => this.clearError(input));
-      input.addEventListener('change', () => {
-        this.clearError(input);
-        // Vehicle change → recalculate price
-        if (input.id === 'f-vehicle') PriceCalc.update();
+  // ── Calendar sub-module ──────────────────────────────
+  _cal: {
+    year:  null,
+    month: null,
+    selectedDate: null,
+
+    init() {
+      const today  = new Date();
+      this.year    = today.getFullYear();
+      this.month   = today.getMonth();
+
+      document.getElementById('cal-prev')?.addEventListener('click', () => { this.prev(); });
+      document.getElementById('cal-next')?.addEventListener('click', () => { this.next(); });
+      this.render();
+    },
+
+    prev() {
+      this.month--;
+      if (this.month < 0) { this.month = 11; this.year--; }
+      this.render();
+    },
+
+    next() {
+      this.month++;
+      if (this.month > 11) { this.month = 0; this.year++; }
+      this.render();
+    },
+
+    render() {
+      // Label
+      const labelEl = document.getElementById('cal-month-label');
+      if (labelEl) {
+        labelEl.textContent = new Date(this.year, this.month, 1)
+          .toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+      }
+      this.renderDays();
+    },
+
+    renderDays() {
+      const grid = document.getElementById('cal-days');
+      if (!grid) return;
+
+      const vehicleType = document.querySelector('input[name="vehicleType"]:checked')?.value || '';
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const firstDay    = new Date(this.year, this.month, 1).getDay();
+      const daysInMonth = new Date(this.year, this.month + 1, 0).getDate();
+
+      let html = '';
+      for (let i = 0; i < firstDay; i++) html += '<div class="cal-day cal-day--empty"></div>';
+
+      for (let d = 1; d <= daysInMonth; d++) {
+        const dateStr = `${this.year}-${String(this.month + 1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+        const isPast  = new Date(dateStr + 'T00:00:00') < today;
+        const level   = isPast ? 'past' : Scheduler.getCapacityLevel(dateStr);
+        const avail   = !isPast && (vehicleType ? Scheduler.isDateAvailable(dateStr, vehicleType)
+                                                : (level !== 'full' && level !== 'blocked'));
+        const isSel   = dateStr === this.selectedDate;
+
+        const cls = ['cal-day', `cal-day--${level}`];
+        if (isSel)              cls.push('cal-day--selected');
+        if (!avail || isPast)   cls.push('cal-day--disabled');
+
+        html += `<div class="${cls.join(' ')}" data-date="${dateStr}"
+                      ${avail && !isPast ? 'role="button" tabindex="0"' : 'aria-disabled="true"'}>${d}</div>`;
+      }
+
+      grid.innerHTML = html;
+
+      grid.querySelectorAll('.cal-day[role="button"]').forEach(el => {
+        el.addEventListener('click', () => this.select(el.dataset.date));
+        el.addEventListener('keydown', e => {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); this.select(el.dataset.date); }
+        });
+      });
+    },
+
+    select(dateStr) {
+      this.selectedDate = dateStr;
+      document.getElementById('f-date').value = dateStr;
+      document.getElementById('date-error').textContent = '';
+      this.renderDays();
+      BookingWizard.onDateSelected(dateStr);
+    },
+  },
+
+  // ── Init ─────────────────────────────────────────────
+  init() {
+    this._form    = document.getElementById('booking-form');
+    this._success = document.getElementById('booking-success');
+    if (!this._form) return;
+
+    // Vehicle selector
+    document.querySelectorAll('.vehicle-radio').forEach(radio => {
+      radio.addEventListener('change', () => {
+        document.querySelectorAll('.vehicle-option').forEach(opt =>
+          opt.classList.toggle('vehicle-option--selected', opt.dataset.value === radio.value)
+        );
+        document.getElementById('vehicle-error').textContent = '';
+        PriceCalc.update();
+        // Refresh calendar availability if on step 2
+        if (this.currentStep === 2) {
+          this._cal.renderDays();
+          const dateStr = document.getElementById('f-date')?.value;
+          if (dateStr) this.renderTimeSlots(dateStr);
+        }
       });
     });
 
-    // Checkbox interactions: clear error + update price calc
-    this.form.querySelectorAll('.cb-main, .cb-addon').forEach(cb => {
+    // Service checkboxes
+    this._form.querySelectorAll('.cb-main, .cb-addon').forEach(cb => {
       cb.addEventListener('change', () => {
         this.clearServiceError();
         PriceCalc.update();
       });
     });
 
-    // "Submit another" button
-    const btnAnother = document.getElementById('btn-book-another');
-    if (btnAnother) {
-      btnAnother.addEventListener('click', () => {
-        this.success.hidden = true;
-        this.form.hidden    = false;
-        this.form.reset();
-        PriceCalc.update();
-        this.form.querySelector('.form-input').focus();
-      });
+    // Navigation
+    document.getElementById('wizard-next-1')?.addEventListener('click', () => {
+      if (this.validateStep1()) this.goTo(2);
+    });
+    document.getElementById('wizard-back-2')?.addEventListener('click', () => this.goTo(1));
+    document.getElementById('wizard-next-2')?.addEventListener('click', () => {
+      if (this.validateStep2()) this.goTo(3);
+    });
+    document.getElementById('wizard-back-3')?.addEventListener('click', () => this.goTo(2));
+    document.getElementById('wizard-next-3')?.addEventListener('click', () => {
+      if (this.validateStep3()) { this.renderConfirmation(); this.goTo(4); }
+    });
+    document.getElementById('wizard-back-4')?.addEventListener('click', () => this.goTo(3));
+
+    // Form submit (step 4)
+    this._form.addEventListener('submit', e => { e.preventDefault(); this.submit(); });
+
+    // Submit another
+    document.getElementById('btn-book-another')?.addEventListener('click', () => this.reset());
+
+    // Calendar
+    this._cal.init();
+  },
+
+  onDateSelected(dateStr) {
+    const vehicleType = document.querySelector('input[name="vehicleType"]:checked')?.value || '';
+    const slots = vehicleType ? Scheduler.getAvailableSlots(dateStr, vehicleType) : [];
+    const nextEl  = document.getElementById('next-available');
+    const chipsEl = document.getElementById('next-avail-chips');
+
+    if (vehicleType && slots.length === 0) {
+      // Show "next available" suggestions
+      const suggestions = Scheduler.getNextAvailable(dateStr, vehicleType, 3);
+      if (suggestions.length > 0 && nextEl && chipsEl) {
+        nextEl.hidden = false;
+        chipsEl.innerHTML = suggestions.map(d =>
+          `<button type="button" class="next-avail-chip" data-date="${d}">${formatDateShort(d)}</button>`
+        ).join('');
+        chipsEl.querySelectorAll('.next-avail-chip').forEach(chip => {
+          chip.addEventListener('click', () => {
+            const parts = chip.dataset.date.split('-');
+            this._cal.year  = parseInt(parts[0]);
+            this._cal.month = parseInt(parts[1]) - 1;
+            this._cal.render();
+            this._cal.select(chip.dataset.date);
+          });
+        });
+      } else if (nextEl) {
+        nextEl.hidden = true;
+      }
+      document.getElementById('fg-timeslots').hidden = true;
+    } else {
+      if (nextEl) nextEl.hidden = true;
+      this.renderTimeSlots(dateStr);
     }
   },
 
-  validate() {
-    let valid = true;
+  renderTimeSlots(dateStr) {
+    const vehicleType  = document.querySelector('input[name="vehicleType"]:checked')?.value || '';
+    const fg           = document.getElementById('fg-timeslots');
+    const container    = document.getElementById('time-slots');
+    if (!fg || !container || !vehicleType || !dateStr) { if (fg) fg.hidden = true; return; }
 
-    const rules = [
-      { id: 'f-name',    test: v => v.trim().length >= 2,                          msg: I18n.t('err.name') },
-      { id: 'f-phone',   test: v => /^[\d\s\+\-\(\)]{7,20}$/.test(v.trim()),      msg: I18n.t('err.phone') },
-      { id: 'f-email',   test: v => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim()),  msg: I18n.t('err.email') },
-      { id: 'f-vehicle', test: v => v !== '',                                       msg: I18n.t('err.vehicle') },
-      { id: 'f-date',    test: v => v !== '',                                       msg: I18n.t('err.date') },
-      { id: 'f-address', test: v => v.trim().length >= 5,                          msg: I18n.t('err.address') },
-    ];
+    const slots = Scheduler.getAvailableSlots(dateStr, vehicleType);
+    if (slots.length === 0) { fg.hidden = true; return; }
 
-    rules.forEach(({ id, test, msg }) => {
-      const input = document.getElementById(id);
-      if (!input) return;
-      if (!test(input.value)) {
-        this.showError(input, msg);
-        valid = false;
-      }
+    // Reset time selection when re-rendering
+    document.getElementById('f-time').value = '';
+
+    container.innerHTML = slots.map(slot =>
+      `<button type="button" class="time-slot-btn" data-time="${slot}">${slot}</button>`
+    ).join('');
+
+    fg.hidden = false;
+
+    container.querySelectorAll('.time-slot-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        container.querySelectorAll('.time-slot-btn').forEach(b => b.classList.remove('time-slot-btn--selected'));
+        btn.classList.add('time-slot-btn--selected');
+        document.getElementById('f-time').value = btn.dataset.time;
+        document.getElementById('time-error').textContent = '';
+      });
+    });
+  },
+
+  goTo(step) {
+    document.getElementById(`wizard-panel-${this.currentStep}`).hidden = true;
+    document.getElementById(`wizard-panel-${step}`).hidden = false;
+
+    document.querySelectorAll('.wizard-step').forEach(s => {
+      const n = parseInt(s.dataset.step);
+      s.classList.toggle('wizard-step--active', n === step);
+      s.classList.toggle('wizard-step--done',   n < step);
     });
 
-    // Validate at least one service checkbox
-    const anyService = this.form.querySelectorAll('.cb-main:checked, .cb-addon:checked').length > 0;
-    if (!anyService) {
-      const errEl = document.getElementById('service-error');
-      if (errEl) errEl.textContent = I18n.t('err.service');
-      const fgService = document.getElementById('fg-service');
-      if (fgService) fgService.classList.add('has-service-error');
-      valid = false;
+    this.currentStep = step;
+
+    if (step === 2) this._cal.renderDays();
+
+    document.getElementById('booking')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  },
+
+  validateStep1() {
+    let ok = true;
+    const vehicle = document.querySelector('input[name="vehicleType"]:checked')?.value;
+    if (!vehicle) {
+      document.getElementById('vehicle-error').textContent = I18n.t('err.vehicle');
+      ok = false;
     }
-
-    return valid;
+    const anyService = this._form.querySelectorAll('.cb-main:checked, .cb-addon:checked').length > 0;
+    if (!anyService) {
+      document.getElementById('service-error').textContent = I18n.t('err.service');
+      document.getElementById('fg-service')?.classList.add('has-service-error');
+      ok = false;
+    }
+    return ok;
   },
 
-  showError(input, msg) {
-    input.classList.add('has-error');
-    const errEl = input.parentElement.querySelector('.form-error');
-    if (errEl) errEl.textContent = msg;
+  validateStep2() {
+    let ok = true;
+    if (!document.getElementById('f-date')?.value) {
+      document.getElementById('date-error').textContent = I18n.t('err.date');
+      ok = false;
+    }
+    if (!document.getElementById('f-time')?.value) {
+      document.getElementById('time-error').textContent = I18n.t('err.time');
+      ok = false;
+    }
+    return ok;
   },
 
-  clearError(input) {
-    input.classList.remove('has-error');
-    const errEl = input.parentElement.querySelector('.form-error');
-    if (errEl) errEl.textContent = '';
+  validateStep3() {
+    let ok = true;
+    const rules = [
+      { id:'f-name',    test: v => v.trim().length >= 2,                          msg: I18n.t('err.name') },
+      { id:'f-phone',   test: v => /^[\d\s\+\-\(\)]{7,20}$/.test(v.trim()),      msg: I18n.t('err.phone') },
+      { id:'f-email',   test: v => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim()),  msg: I18n.t('err.email') },
+      { id:'f-address', test: v => v.trim().length >= 5,                          msg: I18n.t('err.address') },
+    ];
+    rules.forEach(({ id, test, msg }) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      if (!test(el.value)) {
+        el.classList.add('has-error');
+        const errEl = el.parentElement?.querySelector('.form-error');
+        if (errEl) errEl.textContent = msg;
+        ok = false;
+      } else {
+        el.classList.remove('has-error');
+      }
+    });
+    const privacy = document.getElementById('f-privacy');
+    if (privacy && !privacy.checked) {
+      document.getElementById('privacy-error').textContent = I18n.t('err.privacy');
+      ok = false;
+    } else if (privacy) {
+      document.getElementById('privacy-error').textContent = '';
+    }
+    // Clear errors on input
+    ['f-name','f-phone','f-email','f-address'].forEach(id => {
+      const el = document.getElementById(id);
+      if (!el._wired) {
+        el.addEventListener('input', () => {
+          el.classList.remove('has-error');
+          const errEl = el.parentElement?.querySelector('.form-error');
+          if (errEl) errEl.textContent = '';
+        });
+        el._wired = true;
+      }
+    });
+    return ok;
   },
 
   clearServiceError() {
     const errEl = document.getElementById('service-error');
     if (errEl) errEl.textContent = '';
-    const fgService = document.getElementById('fg-service');
-    if (fgService) fgService.classList.remove('has-service-error');
+    document.getElementById('fg-service')?.classList.remove('has-service-error');
+  },
+
+  renderConfirmation() {
+    const el = document.getElementById('confirm-summary');
+    if (!el) return;
+
+    const vehicle     = document.querySelector('input[name="vehicleType"]:checked')?.value || '—';
+    const mainSvcs    = Array.from(this._form.querySelectorAll('.cb-main:checked')).map(cb => SERVICE_EN_LABELS[cb.value] || cb.value);
+    const addonSvcs   = Array.from(this._form.querySelectorAll('.cb-addon:checked')).map(cb => SERVICE_EN_LABELS[cb.value] || cb.value);
+    const allServices = [...mainSvcs, ...addonSvcs].join(', ') || '—';
+    const dateStr     = document.getElementById('f-date')?.value || '';
+    const timeStr     = document.getElementById('f-time')?.value || '—';
+    const name        = document.getElementById('f-name')?.value || '—';
+    const phone       = document.getElementById('f-phone')?.value || '—';
+    const email       = document.getElementById('f-email')?.value || '—';
+    const address     = document.getElementById('f-address')?.value || '—';
+    const notes       = document.getElementById('f-notes')?.value || '';
+
+    const rows = [
+      [I18n.t('confirm.vehicle'),  vehicle],
+      [I18n.t('confirm.services'), allServices],
+      [I18n.t('confirm.date'),     formatDateShort(dateStr)],
+      [I18n.t('confirm.time'),     timeStr],
+      [I18n.t('confirm.name'),     name],
+      [I18n.t('confirm.phone'),    phone],
+      [I18n.t('confirm.email'),    email],
+      [I18n.t('confirm.address'),  address],
+    ];
+    if (notes.trim()) rows.push([I18n.t('form.notes'), notes]);
+
+    el.innerHTML = `
+      <h3 class="confirm-title">${escapeHtml(I18n.t('confirm.title'))}</h3>
+      <div class="confirm-rows">
+        ${rows.map(([label, value]) => `
+          <div class="confirm-row">
+            <span class="confirm-label">${escapeHtml(label)}</span>
+            <span class="confirm-value">${escapeHtml(value)}</span>
+          </div>`).join('')}
+      </div>`;
   },
 
   submit() {
-    const data = new FormData(this.form);
-
-    const selectedMain   = Array.from(this.form.querySelectorAll('.cb-main:checked')).map(cb => cb.value);
-    const selectedAddons = Array.from(this.form.querySelectorAll('.cb-addon:checked')).map(cb => cb.value);
-    const allServices    = [...selectedMain, ...selectedAddons].map(v => SERVICE_EN_LABELS[v] || v);
+    const data        = new FormData(this._form);
+    const mainSel     = Array.from(this._form.querySelectorAll('.cb-main:checked')).map(cb => cb.value);
+    const addonSel    = Array.from(this._form.querySelectorAll('.cb-addon:checked')).map(cb => cb.value);
+    const allServices = [...mainSel, ...addonSel].map(v => SERVICE_EN_LABELS[v] || v);
+    const hasPaint    = mainSel.some(v => PAINT_SERVICES.has(v));
+    const refNum      = genRef();
 
     const booking = {
       id:             uid(),
+      refNum,
       dateReceived:   new Date().toISOString(),
-      clientName:     data.get('clientName').trim(),
-      clientPhone:    data.get('clientPhone').trim(),
-      clientEmail:    data.get('clientEmail').trim(),
-      serviceType:    allServices,           // array of EN labels
-      vehicleType:    data.get('vehicleType'),
-      serviceAddress: data.get('serviceAddress').trim(),
-      preferredDate:  data.get('preferredDate'),
-      notes:          data.get('notes').trim(),
+      clientName:     data.get('clientName')?.trim()     || '',
+      clientPhone:    data.get('clientPhone')?.trim()    || '',
+      clientEmail:    data.get('clientEmail')?.trim()    || '',
+      serviceType:    allServices,
+      vehicleType:    document.querySelector('input[name="vehicleType"]:checked')?.value || '',
+      serviceAddress: data.get('serviceAddress')?.trim() || '',
+      preferredDate:  data.get('preferredDate')          || '',
+      preferredTime:  data.get('preferredTime')          || '',
+      notes:          data.get('notes')?.trim()          || '',
       status:         'New',
+      blockNextDay:   hasPaint,
     };
 
     Storage.addBooking(booking);
 
-    this.form.hidden    = true;
-    this.success.hidden = false;
+    // Fire-and-forget: show success immediately, backend runs in background
+    fetch(`${BACKEND_URL}/api/booking`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(booking),
+    }).catch(err => console.warn('Backend notification failed:', err));
+
+    this._form.hidden = true;
+    const stepsEl = document.getElementById('wizard-steps');
+    if (stepsEl) stepsEl.hidden = true;
+    this._success.hidden = false;
+
+    const refEl = document.getElementById('success-ref-num');
+    if (refEl) refEl.textContent = refNum;
+  },
+
+  reset() {
+    this._form.hidden = false;
+    const stepsEl = document.getElementById('wizard-steps');
+    if (stepsEl) stepsEl.hidden = false;
+    this._success.hidden = true;
+    this._form.reset();
+
+    document.querySelectorAll('.vehicle-option').forEach(o => o.classList.remove('vehicle-option--selected'));
+
+    this._cal.selectedDate = null;
+    const fd = document.getElementById('f-date'); if (fd) fd.value = '';
+    const ft = document.getElementById('f-time'); if (ft) ft.value = '';
+    document.getElementById('fg-timeslots').hidden = true;
+    const na = document.getElementById('next-available'); if (na) na.hidden = true;
+
+    for (let i = 2; i <= 4; i++) {
+      const p = document.getElementById(`wizard-panel-${i}`);
+      if (p) p.hidden = true;
+    }
+    document.getElementById('wizard-panel-1').hidden = false;
+
+    document.querySelectorAll('.wizard-step').forEach(s => {
+      s.classList.remove('wizard-step--active', 'wizard-step--done');
+      if (parseInt(s.dataset.step) === 1) s.classList.add('wizard-step--active');
+    });
+
+    this.currentStep = 1;
+    PriceCalc.update();
   },
 };
 
@@ -1165,7 +1692,6 @@ const AdminPanel = {
     form.addEventListener('submit', e => {
       e.preventDefault();
       const pw = document.getElementById('admin-pw').value;
-
       if (pw === ADMIN_PASSWORD) {
         sessionStorage.setItem(SESSION_KEY, '1');
         document.getElementById('admin-login').hidden = true;
@@ -1186,53 +1712,39 @@ const AdminPanel = {
   },
 
   initCRM() {
-    const filterSelect = document.getElementById('crm-filter-status');
-    const sortSelect   = document.getElementById('crm-sort-by');
-
-    filterSelect.addEventListener('change', () => {
-      this.filterStatus = filterSelect.value;
+    document.getElementById('crm-filter-status').addEventListener('change', e => {
+      this.filterStatus = e.target.value;
       this.renderTable();
     });
-
-    sortSelect.addEventListener('change', () => {
-      this.sortBy = sortSelect.value;
+    document.getElementById('crm-sort-by').addEventListener('change', e => {
+      this.sortBy = e.target.value;
       this.renderTable();
     });
-
-    document.getElementById('btn-export-csv').addEventListener('click', () => {
-      this.exportCSV();
-    });
-
+    document.getElementById('btn-export-csv').addEventListener('click', () => this.exportCSV());
     document.getElementById('btn-admin-logout').addEventListener('click', () => {
       sessionStorage.removeItem(SESSION_KEY);
       window.location.reload();
     });
 
+    AdminCalendar.init();
     this.renderStats();
     this.renderTable();
   },
 
   getFilteredSorted() {
     let bookings = Storage.getBookings();
-
-    if (this.filterStatus) {
-      bookings = bookings.filter(b => b.status === this.filterStatus);
-    }
+    if (this.filterStatus) bookings = bookings.filter(b => b.status === this.filterStatus);
 
     switch (this.sortBy) {
       case 'date-asc':
-        bookings.sort((a, b) => new Date(a.dateReceived) - new Date(b.dateReceived));
-        break;
+        bookings.sort((a, b) => new Date(a.dateReceived) - new Date(b.dateReceived)); break;
       case 'name-asc':
-        bookings.sort((a, b) => a.clientName.localeCompare(b.clientName));
-        break;
+        bookings.sort((a, b) => a.clientName.localeCompare(b.clientName)); break;
       case 'preferred-date-asc':
-        bookings.sort((a, b) => (a.preferredDate || '').localeCompare(b.preferredDate || ''));
-        break;
+        bookings.sort((a, b) => (a.preferredDate || '').localeCompare(b.preferredDate || '')); break;
       default:
         bookings.sort((a, b) => new Date(b.dateReceived) - new Date(a.dateReceived));
     }
-
     return bookings;
   },
 
@@ -1242,14 +1754,12 @@ const AdminPanel = {
     counts[I18n.t('admin.stat.total')] = all.length;
     STATUS_ORDER.forEach(s => { counts[s] = all.filter(b => b.status === s).length; });
 
-    const statsEl = document.getElementById('admin-stats');
-    statsEl.innerHTML = Object.entries(counts)
+    document.getElementById('admin-stats').innerHTML = Object.entries(counts)
       .map(([label, count]) => `
         <div class="stat-card">
           <span class="stat-count">${count}</span>
           <span class="stat-label">${escapeHtml(label)}</span>
-        </div>`)
-      .join('');
+        </div>`).join('');
   },
 
   renderTable() {
@@ -1262,7 +1772,6 @@ const AdminPanel = {
       emptyEl.hidden  = false;
       return;
     }
-
     emptyEl.hidden  = true;
     tbody.innerHTML = bookings.map(b => this.rowHtml(b)).join('');
 
@@ -1271,6 +1780,7 @@ const AdminPanel = {
         Storage.updateStatus(sel.dataset.id, sel.value);
         this.renderStats();
         this.renderTable();
+        AdminCalendar.render();
       });
     });
 
@@ -1280,6 +1790,7 @@ const AdminPanel = {
           Storage.deleteBooking(btn.dataset.id);
           this.renderStats();
           this.renderTable();
+          AdminCalendar.render();
         }
       });
     });
@@ -1290,10 +1801,13 @@ const AdminPanel = {
       `<option value="${s}"${b.status === s ? ' selected' : ''}>${s}</option>`
     ).join('');
 
-    // Handle legacy string and new array serviceType
     const serviceDisplay = Array.isArray(b.serviceType)
       ? b.serviceType.join(', ')
       : (b.serviceType || '—');
+
+    const preferredDisplay = b.preferredDate
+      ? `${formatDateShort(b.preferredDate)}${b.preferredTime ? '<br><small>' + escapeHtml(b.preferredTime) + '</small>' : ''}`
+      : '—';
 
     return `
       <tr>
@@ -1306,7 +1820,7 @@ const AdminPanel = {
         <td class="td-notes" title="${escapeHtml(serviceDisplay)}">${escapeHtml(serviceDisplay)}</td>
         <td>${escapeHtml(b.vehicleType)}</td>
         <td class="td-notes" title="${escapeHtml(b.serviceAddress || '')}">${escapeHtml(b.serviceAddress || '—')}</td>
-        <td>${escapeHtml(formatDateShort(b.preferredDate))}</td>
+        <td>${preferredDisplay}</td>
         <td><span class="status-badge ${statusClass(b.status)}">${escapeHtml(b.status)}</span></td>
         <td>
           <div class="crm-actions">
@@ -1331,33 +1845,31 @@ const AdminPanel = {
     if (!bookings.length) { alert('No bookings to export.'); return; }
 
     const headers = [
-      'Date Received', 'Client Name', 'Phone', 'Email',
-      'Services', 'Vehicle Type', 'Service Address', 'Preferred Date', 'Notes', 'Status',
+      'Ref', 'Date Received', 'Client Name', 'Phone', 'Email',
+      'Services', 'Vehicle Type', 'Service Address',
+      'Preferred Date', 'Preferred Time', 'Notes', 'Status',
     ];
 
     const rows = bookings.map(b => {
-      const serviceStr = Array.isArray(b.serviceType)
-        ? b.serviceType.join('; ')
-        : (b.serviceType || '');
+      const serviceStr = Array.isArray(b.serviceType) ? b.serviceType.join('; ') : (b.serviceType || '');
       return [
+        b.refNum || '',
         formatDate(b.dateReceived),
-        b.clientName,
-        b.clientPhone,
-        b.clientEmail,
-        serviceStr,
-        b.vehicleType,
+        b.clientName, b.clientPhone, b.clientEmail,
+        serviceStr, b.vehicleType,
         b.serviceAddress || '',
         formatDateShort(b.preferredDate),
+        b.preferredTime || '',
         b.notes || '',
         b.status,
       ];
     });
 
-    const csvContent = [headers, ...rows]
+    const csv = [headers, ...rows]
       .map(row => row.map(cell => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
       .join('\n');
 
-    const blob = new Blob(['﻿' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
     a.href     = url;
@@ -1369,10 +1881,205 @@ const AdminPanel = {
   },
 };
 
+/* ─── ADMIN CALENDAR ─────────────────────────────────────── */
+const AdminCalendar = {
+  year:  null,
+  month: null,
+
+  init() {
+    const today  = new Date();
+    this.year    = today.getFullYear();
+    this.month   = today.getMonth();
+
+    document.getElementById('admin-cal-prev')?.addEventListener('click', () => {
+      this.month--;
+      if (this.month < 0) { this.month = 11; this.year--; }
+      this.render();
+    });
+    document.getElementById('admin-cal-next')?.addEventListener('click', () => {
+      this.month++;
+      if (this.month > 11) { this.month = 0; this.year++; }
+      this.render();
+    });
+
+    // Toggle calendar
+    document.getElementById('btn-toggle-cal')?.addEventListener('click', () => {
+      const wrap = document.getElementById('admin-cal-wrap');
+      const btn  = document.getElementById('btn-toggle-cal');
+      wrap.hidden = !wrap.hidden;
+      btn.textContent = wrap.hidden ? I18n.t('admin.cal.show') : I18n.t('admin.cal.hide');
+    });
+
+    // Block date panel toggle
+    document.getElementById('btn-block-date')?.addEventListener('click', () => {
+      const panel = document.getElementById('admin-block-form');
+      panel.hidden = !panel.hidden;
+      // Hide daily view when block panel opens
+      if (!panel.hidden) document.getElementById('admin-daily-view').hidden = true;
+    });
+    document.getElementById('btn-block-cancel')?.addEventListener('click', () => {
+      document.getElementById('admin-block-form').hidden = true;
+    });
+    document.getElementById('btn-block-confirm')?.addEventListener('click', () => {
+      const inp = document.getElementById('block-date-input');
+      if (inp?.value) {
+        Scheduler.blockDate(inp.value);
+        inp.value = '';
+        this.render();
+        this.renderBlockedList();
+      }
+    });
+
+    // Close daily view
+    document.getElementById('admin-daily-close')?.addEventListener('click', () => {
+      document.getElementById('admin-daily-view').hidden = true;
+    });
+
+    this.render();
+    this.renderBlockedList();
+  },
+
+  render() {
+    this.renderLabel();
+    this.renderGrid();
+  },
+
+  renderLabel() {
+    const el = document.getElementById('admin-cal-label');
+    if (el) el.textContent = new Date(this.year, this.month, 1)
+      .toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  },
+
+  renderGrid() {
+    const grid = document.getElementById('admin-cal-grid');
+    if (!grid) return;
+
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const firstDay    = new Date(this.year, this.month, 1).getDay();
+    const daysInMonth = new Date(this.year, this.month + 1, 0).getDate();
+
+    // Weekday headers
+    const weekdays = ['Su','Mo','Tu','We','Th','Fr','Sa'];
+    const headerHtml = weekdays.map(d => `<div class="admin-cal-weekday">${d}</div>`).join('');
+
+    let cellHtml = '';
+    for (let i = 0; i < firstDay; i++) cellHtml += '<div class="admin-cal-day admin-cal-day--empty"></div>';
+
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateStr = `${this.year}-${String(this.month + 1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+      const isPast  = new Date(dateStr + 'T00:00:00') < today;
+      const level   = isPast ? 'past' : Scheduler.getCapacityLevel(dateStr);
+      const count   = isPast ? 0 : Storage.getBookings().filter(b => b.preferredDate === dateStr).length;
+
+      cellHtml += `
+        <div class="admin-cal-day admin-cal-day--${level}" data-date="${dateStr}"
+             role="button" tabindex="0"
+             title="${dateStr}${count ? ': ' + count + ' booking' + (count !== 1 ? 's' : '') : ''}">
+          <span class="admin-cal-num">${d}</span>
+          ${count > 0 ? `<span class="admin-cal-count">${count}</span>` : ''}
+        </div>`;
+    }
+
+    grid.innerHTML = headerHtml + cellHtml;
+
+    grid.querySelectorAll('.admin-cal-day:not(.admin-cal-day--empty)').forEach(el => {
+      el.addEventListener('click', () => this.showDay(el.dataset.date));
+      el.addEventListener('keydown', e => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); this.showDay(el.dataset.date); }
+      });
+    });
+  },
+
+  showDay(dateStr) {
+    const view    = document.getElementById('admin-daily-view');
+    const title   = document.getElementById('admin-daily-title');
+    const content = document.getElementById('admin-daily-content');
+    if (!view || !title || !content) return;
+
+    // Hide block form when daily view opens
+    document.getElementById('admin-block-form').hidden = true;
+
+    title.textContent = formatDateShort(dateStr);
+
+    const isBlocked = Scheduler.isBlocked(dateStr);
+    const bookings  = Storage.getBookings()
+      .filter(b => b.preferredDate === dateStr)
+      .sort((a, b) => (a.preferredTime || '').localeCompare(b.preferredTime || ''));
+
+    let html = '';
+    if (isBlocked) html += `<div class="daily-blocked-notice">${I18n.t('admin.cal.blockedDate')}</div>`;
+
+    if (bookings.length === 0 && !isBlocked) {
+      html += `<p class="daily-empty">${I18n.t('admin.cal.noBookings')}</p>`;
+    } else {
+      html += '<div class="daily-bookings">';
+      bookings.forEach(b => {
+        const svc = Array.isArray(b.serviceType) ? b.serviceType.join(', ') : (b.serviceType || '—');
+        html += `
+          <div class="daily-booking-item">
+            <div class="daily-booking-time">${escapeHtml(b.preferredTime || '—')}</div>
+            <div class="daily-booking-info">
+              <strong>${escapeHtml(b.clientName)}</strong>
+              <span>${escapeHtml(b.vehicleType)}</span>
+              <span class="daily-booking-svc">${escapeHtml(svc)}</span>
+              <span class="status-badge ${statusClass(b.status)}">${escapeHtml(b.status)}</span>
+              ${b.refNum ? `<span class="daily-ref">#${escapeHtml(b.refNum)}</span>` : ''}
+            </div>
+          </div>`;
+      });
+      html += '</div>';
+    }
+
+    // Block/unblock button
+    if (isBlocked) {
+      html += `<button type="button" class="btn btn-sm btn-secondary admin-day-action" id="btn-day-unblock" data-date="${dateStr}">${I18n.t('admin.cal.unblock')}</button>`;
+    } else {
+      html += `<button type="button" class="btn btn-sm btn-ghost admin-day-action" id="btn-day-block" data-date="${dateStr}">${I18n.t('admin.cal.blockBtn')}</button>`;
+    }
+
+    content.innerHTML = html;
+    view.hidden = false;
+
+    document.getElementById('btn-day-block')?.addEventListener('click', e => {
+      Scheduler.blockDate(e.target.dataset.date);
+      this.render(); this.renderBlockedList(); this.showDay(e.target.dataset.date);
+    });
+    document.getElementById('btn-day-unblock')?.addEventListener('click', e => {
+      Scheduler.unblockDate(e.target.dataset.date);
+      this.render(); this.renderBlockedList(); this.showDay(e.target.dataset.date);
+    });
+  },
+
+  renderBlockedList() {
+    const listEl = document.getElementById('blocked-dates-list');
+    if (!listEl) return;
+
+    const blocked = Scheduler.getBlockedDates().sort();
+    if (blocked.length === 0) { listEl.innerHTML = ''; return; }
+
+    listEl.innerHTML = `
+      <p class="blocked-dates-title">${escapeHtml(I18n.t('admin.cal.blockedDates'))}</p>
+      <div class="blocked-date-chips">
+        ${blocked.map(d => `
+          <span class="blocked-chip">
+            ${escapeHtml(formatDateShort(d))}
+            <button type="button" class="blocked-chip-remove" data-date="${d}" aria-label="Unblock">×</button>
+          </span>`).join('')}
+      </div>`;
+
+    listEl.querySelectorAll('.blocked-chip-remove').forEach(btn => {
+      btn.addEventListener('click', () => {
+        Scheduler.unblockDate(btn.dataset.date);
+        this.render();
+        this.renderBlockedList();
+      });
+    });
+  },
+};
+
 /* ─── PRIVACY PAGE ───────────────────────────────────────── */
 const PrivacyPage = {
   init() {
-    // Footer year
     const yearEl = document.getElementById('footer-year');
     if (yearEl) yearEl.textContent = new Date().getFullYear();
   },
@@ -1382,7 +2089,6 @@ const PrivacyPage = {
 document.addEventListener('DOMContentLoaded', () => {
   const isPrivacyPage = document.body.dataset.page === 'privacy';
 
-  // Always init I18n (works on all pages)
   I18n.init();
 
   if (isPrivacyPage) {
@@ -1396,7 +2102,7 @@ document.addEventListener('DOMContentLoaded', () => {
     Header.init();
     ServiceCards.init();
     ScrollAnimations.init();
-    BookingForm.init();
-    PriceCalc.update(); // Initial state
+    BookingWizard.init();
+    PriceCalc.update();
   }
 });
