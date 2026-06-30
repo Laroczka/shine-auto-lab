@@ -1618,6 +1618,11 @@ const BookingWizard = {
 
     Storage.addBooking(booking);
 
+    // Google Ads conversion tracking
+    if (typeof gtag_report_conversion === 'function') {
+      gtag_report_conversion();
+    }
+
     // Fire-and-forget: show success immediately, backend runs in background
     fetch(`${BACKEND_URL}/api/booking`, {
       method: 'POST',
